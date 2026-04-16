@@ -8,28 +8,31 @@ import 'logger.dart';
 class CleanupResult {
   final bool success;
   final int deletedCount;
-  final DateTime cutoffTime;
+  final DateTime? cutoffTime;
   final int durationMs;
   final bool wasLimited;
   final String? error;
+  final List<Map<String, dynamic>> logs;
 
   CleanupResult({
     required this.success,
     required this.deletedCount,
-    required this.cutoffTime,
+    this.cutoffTime,
     required this.durationMs,
     required this.wasLimited,
     this.error,
+    required this.logs,
   });
 
   Map<String, dynamic> toJson() {
     return {
       'success': success,
       'deleted_count': deletedCount,
-      'cutoff_time': cutoffTime.toIso8601String(),
+      if (cutoffTime != null) 'cutoff_time': cutoffTime!.toIso8601String(),
       'duration_ms': durationMs,
       'was_limited': wasLimited,
       if (error != null) 'error': error,
+      'logs': logs,
     };
   }
 }
@@ -48,19 +51,16 @@ class CleanupService {
     required this.databases,
   });
 
-  /// Executes the cleanup operation.
+  /// Executes the cleanup operation - DELETES ALL DOCUMENTS.
   /// 
-  /// Queries records where [dateColumn] < cutoffTime (sorted by date ASC),
-  /// and deletes them. If limitRows is configured, only deletes up to that many rows.
+  /// This function deletes ALL documents from the collection.
+  /// If limitRows is configured, only deletes up to that many documents.
   Future<CleanupResult> execute() async {
     final stopwatch = Stopwatch()..start();
-    final cutoffTime = config.cutoffDateTime;
 
     logger.info(
-      'Starting cleanup operation',
+      'Starting cleanup operation - DELETE ALL MODE',
       context: {
-        'cutoff_time': cutoffTime.toIso8601String(),
-        'cutoff_minutes': config.cutoffTimeMinutes,
         'limit_rows': config.limitRows,
         'database_id': config.databaseId,
         'collection_id': config.collectionId,
@@ -69,20 +69,17 @@ class CleanupService {
     );
 
     try {
-      final documents = await _queryOldDocuments(cutoffTime);
+      final documents = await _queryAllDocuments();
 
       if (documents.isEmpty) {
         stopwatch.stop();
-        logger.info(
-          'No old records found to delete',
-          context: {'cutoff_time': cutoffTime.toIso8601String()},
-        );
+        logger.info('No documents found to delete');
         return CleanupResult(
           success: true,
           deletedCount: 0,
-          cutoffTime: cutoffTime,
           durationMs: stopwatch.elapsedMilliseconds,
           wasLimited: false,
+          logs: logger.logs,
         );
       }
 
@@ -104,9 +101,9 @@ class CleanupService {
       return CleanupResult(
         success: true,
         deletedCount: deletedCount,
-        cutoffTime: cutoffTime,
         durationMs: stopwatch.elapsedMilliseconds,
         wasLimited: config.limitRows != null,
+        logs: logger.logs,
       );
     } catch (e, stackTrace) {
       stopwatch.stop();
@@ -116,7 +113,6 @@ class CleanupService {
         error: e,
         stackTrace: stackTrace,
         context: {
-          'cutoff_time': cutoffTime.toIso8601String(),
           'duration_ms': stopwatch.elapsedMilliseconds,
         },
       );
@@ -124,30 +120,22 @@ class CleanupService {
       return CleanupResult(
         success: false,
         deletedCount: 0,
-        cutoffTime: cutoffTime,
         durationMs: stopwatch.elapsedMilliseconds,
         wasLimited: false,
         error: e.toString(),
+        logs: logger.logs,
       );
     }
   }
 
-  /// Queries documents older than the cutoff time.
+  /// Queries ALL documents from the collection.
   /// Returns documents sorted by date column in ascending order (oldest first).
-  Future<List<Document>> _queryOldDocuments(DateTime cutoffTime) async {
-    final cutoffIsoString = cutoffTime.toIso8601String();
-    final nowIsoString = DateTime.now().toUtc().toIso8601String();
-
+  Future<List<Document>> _queryAllDocuments() async {
     logger.info(
-      'Querying old documents',
+      'Querying ALL documents',
       context: {
-        'current_time': nowIsoString,
-        'cutoff_time': cutoffIsoString,
-        'cutoff_minutes': config.cutoffTimeMinutes,
-        'date_column': config.dateColumnName,
         'database_id': config.databaseId,
         'collection_id': config.collectionId,
-        'query': 'Query.lessThan("${config.dateColumnName}", "$cutoffIsoString")',
       },
     );
 
@@ -156,8 +144,6 @@ class CleanupService {
         databaseId: config.databaseId,
         collectionId: config.collectionId,
         queries: [
-          Query.lessThan(config.dateColumnName, cutoffIsoString),
-          Query.orderAsc(config.dateColumnName),
           Query.limit(_batchSize),
         ],
       );
@@ -167,20 +153,20 @@ class CleanupService {
         context: {
           'found_documents': response.documents.length,
           'total_available': response.total,
-          'documents': response.documents.map((d) => {
-            'id': d.$id,
-            'createdAt': d.data[config.dateColumnName],
-          }).toList(),
+          'document_ids': response.documents.map((d) => d.$id).toList(),
         },
       );
 
       return response.documents;
     } catch (e, stackTrace) {
       logger.error(
-        'Failed to query old documents',
+        'Failed to query documents',
         error: e,
         stackTrace: stackTrace,
-        context: {'cutoff_time': cutoffIsoString},
+        context: {
+          'database_id': config.databaseId,
+          'collection_id': config.collectionId,
+        },
       );
       rethrow;
     }

@@ -4,25 +4,68 @@ import 'dart:io';
 /// Log level enum for categorizing log messages.
 enum LogLevel { debug, info, warn, error }
 
+/// Log entry model.
+class LogEntry {
+  final String timestamp;
+  final String level;
+  final String service;
+  final String message;
+  final Map<String, dynamic>? context;
+
+  LogEntry({
+    required this.timestamp,
+    required this.level,
+    required this.service,
+    required this.message,
+    this.context,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'timestamp': timestamp,
+      'level': level,
+      'service': service,
+      'message': message,
+      if (context != null) 'context': context,
+    };
+  }
+}
+
 /// Structured logger for consistent logging across the application.
 class Logger {
   final String serviceName;
+  final List<LogEntry> _logs = [];
+  final bool captureLogs;
 
-  Logger({this.serviceName = 'CleanupService'});
+  Logger({
+    this.serviceName = 'CleanupService',
+    this.captureLogs = true,
+  });
+
+  /// Returns all captured logs.
+  List<Map<String, dynamic>> get logs => _logs.map((l) => l.toJson()).toList();
+
+  /// Clears all captured logs.
+  void clearLogs() => _logs.clear();
 
   /// Logs a message with the specified level and optional context.
   void log(LogLevel level, String message, {Map<String, dynamic>? context}) {
     final timestamp = DateTime.now().toUtc().toIso8601String();
-    final logEntry = {
-      'timestamp': timestamp,
-      'level': level.name.toUpperCase(),
-      'service': serviceName,
-      'message': message,
-      if (context != null) 'context': context,
-    };
+    final logEntry = LogEntry(
+      timestamp: timestamp,
+      level: level.name.toUpperCase(),
+      service: serviceName,
+      message: message,
+      context: context,
+    );
+
+    // Capture log if enabled
+    if (captureLogs) {
+      _logs.add(logEntry);
+    }
 
     // Output as JSON for structured logging
-    stdout.writeln(jsonEncode(logEntry));
+    stdout.writeln(jsonEncode(logEntry.toJson()));
   }
 
   /// Logs a debug message.

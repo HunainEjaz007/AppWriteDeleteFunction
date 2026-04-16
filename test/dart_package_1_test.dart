@@ -9,9 +9,9 @@ void main() {
       );
 
       expect(config.cutoffTimeMinutes, equals(60));
-      expect(config.databaseId, equals('your_database_id'));
-      expect(config.collectionId, equals('your_collection_id'));
-      expect(config.dateColumnName, equals('date'));
+      expect(config.databaseId, equals('69e082a500030e6c62c8'));
+      expect(config.collectionId, equals('ai_content'));
+      expect(config.dateColumnName, equals('createdAt'));
       expect(config.limitRows, isNull);
     });
 
@@ -60,11 +60,13 @@ void main() {
         cutoffTime: DateTime.now().toUtc(),
         durationMs: 1000,
         wasLimited: false,
+        logs: [],
       );
 
       expect(result.success, isTrue);
       expect(result.deletedCount, equals(10));
       expect(result.wasLimited, isFalse);
+      expect(result.logs, isEmpty);
     });
 
     test('should serialize to JSON correctly', () {
@@ -75,6 +77,7 @@ void main() {
         cutoffTime: cutoff,
         durationMs: 500,
         wasLimited: true,
+        logs: [{'message': 'test log'}],
       );
 
       final json = result.toJson();
@@ -82,6 +85,21 @@ void main() {
       expect(json['deleted_count'], equals(5));
       expect(json['was_limited'], isTrue);
       expect(json['cutoff_time'], equals('2024-01-15T10:00:00.000Z'));
+      expect(json['logs'], isA<List>());
+    });
+
+    test('should work without cutoffTime', () {
+      final result = CleanupResult(
+        success: true,
+        deletedCount: 100,
+        durationMs: 2000,
+        wasLimited: false,
+        logs: [{'level': 'INFO', 'message': 'Deleted all'}],
+      );
+
+      expect(result.success, isTrue);
+      expect(result.cutoffTime, isNull);
+      expect(result.logs.length, equals(1));
     });
   });
 }
