@@ -136,12 +136,18 @@ class CleanupService {
   /// Returns documents sorted by date column in ascending order (oldest first).
   Future<List<Document>> _queryOldDocuments(DateTime cutoffTime) async {
     final cutoffIsoString = cutoffTime.toIso8601String();
+    final nowIsoString = DateTime.now().toUtc().toIso8601String();
 
-    logger.debug(
+    logger.info(
       'Querying old documents',
       context: {
+        'current_time': nowIsoString,
         'cutoff_time': cutoffIsoString,
-        'query': Query.lessThan(config.dateColumnName, cutoffIsoString),
+        'cutoff_minutes': config.cutoffTimeMinutes,
+        'date_column': config.dateColumnName,
+        'database_id': config.databaseId,
+        'collection_id': config.collectionId,
+        'query': 'Query.lessThan("${config.dateColumnName}", "$cutoffIsoString")',
       },
     );
 
@@ -156,11 +162,15 @@ class CleanupService {
         ],
       );
 
-      logger.debug(
+      logger.info(
         'Query completed',
         context: {
           'found_documents': response.documents.length,
           'total_available': response.total,
+          'documents': response.documents.map((d) => {
+            'id': d.$id,
+            'createdAt': d.data[config.dateColumnName],
+          }).toList(),
         },
       );
 
@@ -216,7 +226,10 @@ class CleanupService {
 
     logger.info(
       'Starting deletion of ${documents.length} documents',
-      context: {'batch_count': (documents.length / _batchSize).ceil()},
+      context: {
+        'batch_count': (documents.length / _batchSize).ceil(),
+        'document_ids': documents.map((d) => d.$id).toList(),
+      },
     );
 
     int deletedCount = 0;
@@ -224,6 +237,14 @@ class CleanupService {
 
     for (final doc in documents) {
       try {
+        logger.info(
+          'Deleting document',
+          context: {
+            'document_id': doc.$id,
+            'document_date': doc.data[config.dateColumnName],
+          },
+        );
+
         await databases.deleteDocument(
           databaseId: config.databaseId,
           collectionId: config.collectionId,
@@ -231,16 +252,24 @@ class CleanupService {
         );
         deletedCount++;
 
-        logger.debug(
-          'Deleted document',
+        logger.info(
+          'Successfully deleted document',
+          context: {
+            'document_id': doc.$id,
+            'deleted_count_so_far': deletedCount,
+          },
+        );
+      } catch (e, stackTrace) {
+        final errorMsg = 'Failed to delete document ${doc.$id}: $e';
+        logger.error(
+          errorMsg,
+          error: e,
+          stackTrace: stackTrace,
           context: {
             'document_id': doc.$id,
             'document_date': doc.data[config.dateColumnName],
           },
         );
-      } catch (e) {
-        final errorMsg = 'Failed to delete document ${doc.$id}: $e';
-        logger.error(errorMsg);
         errors.add(errorMsg);
       }
     }
@@ -251,7 +280,7 @@ class CleanupService {
         context: {
           'deleted_count': deletedCount,
           'failed_count': errors.length,
-          'errors': errors.take(5).toList(), // Log first 5 errors
+          'errors': errors.take(5).toList(),
         },
       );
     }
