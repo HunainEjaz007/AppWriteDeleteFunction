@@ -1,21 +1,19 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:dart_appwrite/dart_appwrite.dart';
 import 'src/config.dart';
 import 'src/logger.dart';
 import 'src/cleanup_service.dart';
 
 /// Appwrite Cloud Function entry point for data cleanup.
-/// 
+///
 /// Environment Variables:
 /// - CUTOFF_TIME_MINUTES (required): Delete records older than this many minutes from current time
 /// - LIMIT_ROWS (optional): Maximum number of rows to delete. If not set, deletes all old records
-/// - APPWRITE_DATABASE_ID (required): Database ID
-/// - APPWRITE_COLLECTION_ID (required): Collection ID
-/// - DATE_COLUMN_NAME (optional): Name of the timestamp column, defaults to 'date'
-/// 
-/// Example: If CUTOFF_TIME_MINUTES=60, deletes all records where date < (now - 60 minutes)
-Future<void> main(List<String> args) async {
+///
+/// Example: If CUTOFF_TIME_MINUTES=60, deletes all records where createdAt < (now - 60 minutes)
+///
+/// Note: For Appwrite Cloud Functions, this is wrapped by the runtime.
+/// The context object is injected by the Appwrite runtime.
+Future<void> main(dynamic context) async {
   final logger = Logger(serviceName: 'AppwriteCleanupFunction');
 
   logger.info('Cloud function started');
@@ -25,11 +23,11 @@ Future<void> main(List<String> args) async {
     final config = Config.fromEnvironment();
     logger.info('Configuration loaded', context: {'config': config.toString()});
 
-    // Initialize Appwrite client
+    // Initialize Appwrite client using context
     final client = Client()
-      .setEndpoint(Platform.environment['APPWRITE_FUNCTION_API_ENDPOINT'] ?? 'https://cloud.appwrite.io/v1')
-      .setProject(Platform.environment['APPWRITE_FUNCTION_PROJECT_ID'])
-      .setKey(Platform.environment['APPWRITE_API_KEY']);
+      .setEndpoint(context.req.headers['x-appwrite-endpoint'] ?? 'https://cloud.appwrite.io/v1')
+      .setProject(context.env['APPWRITE_FUNCTION_PROJECT_ID'])
+      .setKey(context.env['APPWRITE_API_KEY']);
 
     logger.info('Appwrite client initialized');
 
@@ -45,15 +43,10 @@ Future<void> main(List<String> args) async {
 
     final result = await cleanupService.execute();
 
-    // Output result as JSON
-    final responseJson = jsonEncode(result.toJson());
     logger.info('Cleanup completed', context: {'result': result.toJson()});
 
-    // Write response to stdout for Appwrite
-    stdout.writeln(responseJson);
-
-    // Exit with appropriate code
-    exit(result.success ? 0 : 1);
+    // Return response using context.res
+    context.res.json(result.toJson());
   } catch (e, stackTrace) {
     logger.error(
       'Fatal error in cloud function',
@@ -61,12 +54,9 @@ Future<void> main(List<String> args) async {
       stackTrace: stackTrace,
     );
 
-    final errorResponse = jsonEncode({
+    context.res.json({
       'success': false,
       'error': e.toString(),
     });
-
-    stdout.writeln(errorResponse);
-    exit(1);
   }
 }
