@@ -13,7 +13,7 @@ import 'src/cleanup_service.dart';
 ///
 /// Note: For Appwrite Cloud Functions, this is wrapped by the runtime.
 /// The context object is injected by the Appwrite runtime.
-Future<void> main(dynamic context) async {
+Future<dynamic> main(dynamic context) async {
   final logger = Logger(serviceName: 'AppwriteCleanupFunction');
 
   logger.info('Cloud function started');
@@ -45,8 +45,8 @@ Future<void> main(dynamic context) async {
 
     logger.info('Cleanup completed', context: {'result': result.toJson()});
 
-    // Return response using context.res
-    context.res.json(result.toJson());
+    // Return response
+    return context.res.json(result.toJson());
   } catch (e, stackTrace) {
     logger.error(
       'Fatal error in cloud function',
@@ -54,7 +54,7 @@ Future<void> main(dynamic context) async {
       stackTrace: stackTrace,
     );
 
-    context.res.json({
+    return context.res.json({
       'success': false,
       'error': e.toString(),
     });
